@@ -89,6 +89,8 @@ button {
     display: block;
     image-rendering: pixelated;
     image-rendering: -moz-crisp-edges;
+    /* Prevent scroll/pinch/double-tap gestures from hijacking gameplay touches */
+    touch-action: none;
 }
 
 /* ============================================
@@ -547,6 +549,8 @@ button {
     inset: 0;
     display: none;
     flex-direction: column;
+    /* Block browser scroll/zoom so taps and swipes go to the game */
+    touch-action: none;
 }
 
 @media (pointer: coarse), (hover: none) {
@@ -555,6 +559,7 @@ button {
 
 .touch-zone {
     flex: 1;
+    touch-action: none;
 }
 
 .hint-overlay {
@@ -1152,4 +1157,28 @@ button {
 @media (orientation: landscape) and (max-height: 500px) {
     .logo-wrap { margin-top: 2vh; }
     .menu-content { max-width: 520px; }
+    /* Tighten the HUD so it doesn't consume the shortened vertical space */
+    .hud-top { top: calc(8px + var(--safe-top)); }
+    .hud-powerups { top: calc(56px + var(--safe-top)); }
+    .distance-display { font-size: 18px; padding: 6px 12px; }
+    .coin-display { font-size: 15px; padding: 6px 10px; }
+    .hint-overlay { top: 56px; }
+    .hint-card { padding: 18px 24px; }
+}
+
+/* Very narrow portrait (small phones) — keep controls reachable */
+@media (max-width: 360px) {
+    .menu-row { gap: 6px; }
+    .btn-secondary { padding: 10px 6px; font-size: 11px; }
+    .btn-huge { padding: 16px 22px; font-size: 20px; }
+    .distance-display { font-size: 18px; }
+}
+
+/* Respect users who don't want animation — keeps gameplay but quiets UI */
+@media (prefers-reduced-motion: reduce) {
+    .btn-huge::before,
+    .hint-tap,
+    .daily-item.today,
+    .notif-dot { animation: none; }
+    #app.shaking #game-canvas { animation: none; }
 }

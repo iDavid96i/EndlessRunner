@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -c \"/c/Users/David/Desktop/Magic/Projects/EndlessRunnerGame/game.js\")",
+      "Bash(node -c \"/c/Users/David/Desktop/Magic/Projects/EndlessRunnerGame/main.js\")"
+    ]
+  }
+}

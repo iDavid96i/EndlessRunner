@@ -117,37 +117,109 @@ class Input {
             }
         });
 
-        // Touch / Pointer swipe
+        // Touch / Pointer
+        // Strategy: tap the upper half (or swipe up) to jump; hold the lower half
+        // (or swipe down) to slide. Slide is released on touchend so players can
+        // hold through long low obstacles.
+        const SWIPE_MIN = 30;
         let startY = 0, startX = 0, startTime = 0, tracking = false;
-        const SWIPE_MIN = 28;
+        let actionTaken = false;   // a swipe has already fired this gesture
+        let pressedZone = null;    // 'up' | 'down' | null
 
-        const onDown = e => {
-            const t = e.touches ? e.touches[0] : e;
-            startY = t.clientY; startX = t.clientX;
+        const zoneAt = (x, y) => {
+            const up = document.querySelector('.touch-zone.touch-up');
+            const down = document.querySelector('.touch-zone.touch-down');
+            // offsetParent === null means the zone is display:none (desktop)
+            if (!up || !down || up.offsetParent === null) return null;
+            const ur = up.getBoundingClientRect();
+            const dr = down.getBoundingClientRect();
+            if (y >= ur.top && y <= ur.bottom) return 'up';
+            if (y >= dr.top && y <= dr.bottom) return 'down';
+            return null;
+        };
+
+        const onDown = (x, y) => {
+            startX = x; startY = y;
             startTime = now();
             tracking = true;
-        };
-        const onUp = e => {
-            if (!tracking) return;
-            tracking = false;
-            const t = e.changedTouches ? e.changedTouches[0] : e;
-            const dy = t.clientY - startY;
-            const dx = t.clientX - startX;
-            const dt = now() - startTime;
-
-            if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > SWIPE_MIN) {
-                if (dy < 0) this._onJump();
-                else        { this._onSlide(); setTimeout(() => this._onSlideEnd(), 550); }
-            } else if (dt < 250 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-                // tap = jump
-                this._onJump();
+            actionTaken = false;
+            pressedZone = zoneAt(x, y);
+            // Touching the lower zone starts the slide immediately
+            // (rather than waiting for touchend) for responsive feel.
+            if (pressedZone === 'down' && !this.slideHeld) {
+                this.slideHeld = true;
+                this._onSlide();
             }
         };
 
-        canvas.addEventListener('touchstart', onDown, { passive: true });
-        canvas.addEventListener('touchend', onUp);
-        canvas.addEventListener('mousedown', onDown);
-        canvas.addEventListener('mouseup', onUp);
+        const onMove = (x, y) => {
+            if (!tracking || actionTaken) return;
+            const dy = y - startY, dx = x - startX;
+            if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > SWIPE_MIN) {
+                actionTaken = true;
+                if (dy < 0) {
+                    // Swipe up overrides any slide that may have started from
+                    // the initial press landing on the lower touch zone.
+                    if (this.slideHeld) { this.slideHeld = false; this._onSlideEnd(); }
+                    this._onJump();
+                } else if (!this.slideHeld) {
+                    this.slideHeld = true;
+                    this._onSlide();
+                }
+            }
+        };
+
+        const onUp = (x, y) => {
+            if (!tracking) return;
+            tracking = false;
+            // Release any held slide on touch release
+            if (this.slideHeld) {
+                this.slideHeld = false;
+                this._onSlideEnd();
+            }
+            if (actionTaken) { pressedZone = null; return; }
+            // Tap: jump unless the tap was on the lower zone (which already
+            // triggered + released a slide via the slideHeld branch above).
+            const dx = Math.abs(x - startX), dy = Math.abs(y - startY);
+            const dt = now() - startTime;
+            if (dt < 300 && dx < 20 && dy < 20 && pressedZone !== 'down') {
+                this._onJump();
+            }
+            pressedZone = null;
+        };
+
+        const onCancel = () => {
+            tracking = false;
+            if (this.slideHeld) { this.slideHeld = false; this._onSlideEnd(); }
+            pressedZone = null;
+        };
+
+        // Attach touch listeners to both the .touch-zones overlay (visible on
+        // mobile, where it eats events the canvas would otherwise receive) and
+        // the canvas itself (desktop + touchscreen desktop where the overlay
+        // is display:none).
+        const wireTouch = (el) => {
+            if (!el) return;
+            el.addEventListener('touchstart', e => {
+                const t = e.touches[0];
+                onDown(t.clientX, t.clientY);
+            }, { passive: true });
+            el.addEventListener('touchmove', e => {
+                const t = e.touches[0];
+                onMove(t.clientX, t.clientY);
+            }, { passive: true });
+            el.addEventListener('touchend', e => {
+                const t = e.changedTouches[0];
+                onUp(t.clientX, t.clientY);
+            });
+            el.addEventListener('touchcancel', onCancel);
+        };
+        wireTouch(document.querySelector('.touch-zones'));
+        wireTouch(canvas);
+
+        // Mouse fallback
+        canvas.addEventListener('mousedown', e => onDown(e.clientX, e.clientY));
+        canvas.addEventListener('mouseup',   e => onUp(e.clientX, e.clientY));
     }
     onJump(fn)     { this._onJump = fn; }
     onSlide(fn)    { this._onSlide = fn; }
@@ -724,7 +796,21 @@ class Game {
         this.input.onSlideEnd(() => this.character.endSlide());
         this.input.onPause(() => { if (this.state === 'playing') this.pause(); });
 
-        window.addEventListener('resize', () => this.resize());
+        // Resize triggers: window resize, visual viewport changes (iOS Safari
+        // address bar show/hide doesn't fire 'resize' reliably), orientation.
+        const schedule = () => {
+            if (this._resizeRAF) return;
+            this._resizeRAF = requestAnimationFrame(() => {
+                this._resizeRAF = 0;
+                this.resize();
+            });
+        };
+        window.addEventListener('resize', schedule);
+        window.addEventListener('orientationchange', schedule);
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', schedule);
+            window.visualViewport.addEventListener('scroll', schedule);
+        }
         this.resize();
 
         this._lastT = now();
